@@ -9,15 +9,25 @@ import app.portafolio.util.Validador;
 import java.util.*;
 
 /**
- * Alternativas simples a partir del óptimo:
- * - Respetan TODAS las restricciones del cliente
- * - Nunca superan el retorno del óptimo (por diseño)
- * - Alt 1: retorno apenas menor al óptimo
- * - Alt 2: menor correlación promedio sin superar el retorno del óptimo
- *
- * Implementación simple (estudiante): swaps y agregar 1 activo (si hay lugar) con pesos iguales.
+ * Alternativos: genera soluciones heurísticas alternativas
+ * que respetan restricciones y no superan el retorno óptimo esperado.
  */
 public class Alternativos {
+
+    // =======================  CONSTANTES (para legibilidad)  =======================
+
+    /** Diferencia máxima permitida respecto al retorno óptimo (0.5%). */
+    private static final double DELTA_RET_OPTIMO = 0.005;
+
+    /** Tolerancia mínima para comparar doubles (riesgo y retorno). */
+    private static final double EPSILON_RETORNO = 1e-12;
+    private static final double EPSILON_RIESGO  = 1e-9;
+    private static final double EPSILON_CORR   = 1e-9;
+
+    /** Límite superior de activos en un portafolio (según restricción de cardinalidad). */
+    private static final int LIMITE_ACTIVOS_MAX = 6;
+
+    // ===============================================================================
 
     /** Valida TODAS las restricciones pedidas por la cátedra. */
     private static boolean validaTodo(List<Activo> sel, double[] w,
@@ -36,8 +46,8 @@ public class Alternativos {
         double r = RiesgoUtils.retorno(sel, w);
         double s = RiesgoUtils.riesgo(sel, w, mc);
 
-        if (s > cliente.perfil().riesgoMax() + 1e-9) return false;
-        if (r + 1e-12 < retMinUsado) return false;
+        if (s > cliente.perfil().riesgoMax() + EPSILON_RIESGO) return false;
+        if (r + EPSILON_RETORNO < retMinUsado) return false;
         return true;
     }
 
@@ -61,8 +71,7 @@ public class Alternativos {
         if (optimo == null) return null;
 
         double rOpt = RiesgoUtils.retorno(optimo.activos(), optimo.pesos());
-        final double DELTA = 0.005;        // 0.5% por debajo del óptimo
-        final double R_MAX = rOpt - DELTA; // nunca superar rOpt
+        final double R_MAX = rOpt - DELTA_RET_OPTIMO; // nunca superar rOpt
 
         if (R_MAX < retMinUsado + 1e-6) {
             // El óptimo ya está pegado al mínimo → no hay margen para alternativa “apenas menor”
@@ -89,7 +98,7 @@ public class Alternativos {
 
                 double r = RiesgoUtils.retorno(nueva, w);
                 // Queremos r <= R_MAX pero lo más cerca posible de rOpt
-                if (r <= R_MAX + 1e-12 && r > mejorR) {
+                if (r <= R_MAX + EPSILON_RETORNO && r > mejorR) {
                     mejorR = r;
                     mejorSel = nueva;
                     mejorW = w;
@@ -98,7 +107,7 @@ public class Alternativos {
         }
 
         // 2) Si no hay swap bueno, probamos AGREGAR un activo (si hay lugar)
-        if (mejorSel == null && optimo.activos().size() < 6) {
+        if (mejorSel == null && optimo.activos().size() < LIMITE_ACTIVOS_MAX) {
             for (Activo cand : universo) {
                 if (optimo.activos().contains(cand)) continue;
                 List<Activo> nueva = new ArrayList<>(optimo.activos());
@@ -112,7 +121,7 @@ public class Alternativos {
                     continue;
 
                 double r = RiesgoUtils.retorno(nueva, w);
-                if (r <= R_MAX + 1e-12 && r > mejorR) {
+                if (r <= R_MAX + EPSILON_RETORNO && r > mejorR) {
                     mejorR = r;
                     mejorSel = nueva;
                     mejorW = w;
@@ -161,7 +170,7 @@ public class Alternativos {
                 if (r > R_MAX) continue;
 
                 double corr = RiesgoUtils.correlacionPromedio(nueva, mc);
-                if (corr < mejorCorr - 1e-9) {
+                if (corr < mejorCorr - EPSILON_CORR) {
                     mejorCorr = corr;
                     mejorSel = nueva;
                     mejorW = w;
@@ -170,7 +179,7 @@ public class Alternativos {
         }
 
         // 2) Si no hubo swap útil, probamos AGREGAR un activo (si hay lugar)
-        if (mejorSel == null && optimo.activos().size() < 6) {
+        if (mejorSel == null && optimo.activos().size() < LIMITE_ACTIVOS_MAX) {
             for (Activo cand : universo) {
                 if (optimo.activos().contains(cand)) continue;
                 List<Activo> nueva = new ArrayList<>(optimo.activos());
@@ -187,7 +196,7 @@ public class Alternativos {
                 if (r > R_MAX) continue;
 
                 double corr = RiesgoUtils.correlacionPromedio(nueva, mc);
-                if (corr < mejorCorr - 1e-9) {
+                if (corr < mejorCorr - EPSILON_CORR) {
                     mejorCorr = corr;
                     mejorSel = nueva;
                     mejorW = w;

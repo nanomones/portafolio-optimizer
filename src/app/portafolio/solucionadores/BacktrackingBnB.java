@@ -7,24 +7,36 @@ import app.portafolio.util.MatrizCorrelacion;
 import app.portafolio.util.RiesgoUtils;
 import app.portafolio.util.Validador;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 
 /**
- * Backtracking con Branch & Bound (poda), modo estudiante.
- * - Maximiza retorno cumpliendo perfil (con retMinUsado), mínimos, 100% dinero y 3..6 activos.
- * - Cota superior optimista de retorno.
- * - Valida cuotas mínimas por sector/tipo (si se pasan).
- * - Desempata por score = retorno - alpha*corr (para favorecer diversificación).
+ * BacktrackingBnB: busca combinaciones con poda
+ * para evitar explorar ramas que no mejoran o ayudan a la solución.
  */
 public class BacktrackingBnB {
 
+    // =======================  CONSTANTES (para legibilidad)  =======================
+
+    /** Mínimo y máximo de activos por portafolio (cardinalidad). */
     private static final int K_MIN = 3;
     private static final int K_MAX = 6;
+
+    /** Penalización usada en el score: r - α·corr */
     private static final double ALPHA_CORR = 0.02;
+
+    /** Tolerancias numéricas para comparaciones de double. */
+    private static final double EPSILON_RIESGO   = 1e-9;
+    private static final double EPSILON_RETORNO  = 1e-12;
+    private static final double EPSILON_SCORE    = 1e-9;
+    private static final double EPSILON_SUM_PESOS = 1e-9;
+
+    /** Umbral de suma de mínimos permitido (para evitar >1.0). */
+    private static final double UMBRAL_MINIMOS = 1.0 + 1e-12;
+
+    /** Valor mínimo considerado "positivo" para retorno acumulado. */
+    private static final double RETORNO_MIN_POSITIVO = 1e-12;
+
+    // ===============================================================================
 
     private static ResultadoPortafolio mejor;
     private static double mejorRetorno;
@@ -49,8 +61,8 @@ public class BacktrackingBnB {
 
         candidatos.sort(new Comparator<Activo>() {
             @Override public int compare(Activo a1, Activo a2) {
-                double s1 = a1.retornoEsperado() / Math.max(1e-9, a1.riesgo());
-                double s2 = a2.retornoEsperado() / Math.max(1e-9, a2.riesgo());
+                double s1 = a1.retornoEsperado() / Math.max(EPSILON_RIESGO, a1.riesgo());
+                double s2 = a2.retornoEsperado() / Math.max(EPSILON_RIESGO, a2.riesgo());
                 return Double.compare(s2, s1);
             }
         });
@@ -64,10 +76,10 @@ public class BacktrackingBnB {
     }
 
     private static void backtrack(int idx,
-                                List<Activo> elegidos,
-                                List<Activo> candidatos,
-                                MatrizCorrelacion rho,
-                                Cliente cliente) {
+                                  List<Activo> elegidos,
+                                  List<Activo> candidatos,
+                                  MatrizCorrelacion rho,
+                                  Cliente cliente) {
 
         if (elegidos.size() >= K_MIN && elegidos.size() <= K_MAX) {
             double[] w = asignarPesos(elegidos, cliente.montoTotal());
@@ -77,13 +89,13 @@ public class BacktrackingBnB {
                 double c = RiesgoUtils.correlacionPromedio(elegidos, rho);
                 double score = r - ALPHA_CORR * c;
 
-                boolean okPerfil = (s <= cliente.perfil().riesgoMax() + 1e-9)
-                                && (r + 1e-12 >= retMinUsado);
+                boolean okPerfil = (s <= cliente.perfil().riesgoMax() + EPSILON_RIESGO)
+                                && (r + EPSILON_RETORNO >= retMinUsado);
                 boolean okCuotas = Validador.cumplenCuotasMinimas(elegidos, w, cuotasSector, cuotasTipo);
 
                 if (okPerfil && okCuotas) {
                     boolean mejoraRet = (r > mejorRetorno);
-                    boolean empateRetMejorScore = (Math.abs(r - mejorRetorno) < 1e-9 && score > mejorScore);
+                    boolean empateRetMejorScore = (Math.abs(r - mejorRetorno) < EPSILON_SCORE && score > mejorScore);
                     if (mejoraRet || empateRetMejorScore) {
                         mejorRetorno = r;
                         mejorScore = score;
@@ -97,7 +109,7 @@ public class BacktrackingBnB {
         if (elegidos.size() == K_MAX || idx == candidatos.size()) return;
 
         double cota = cotaSuperiorRetorno(elegidos, idx, candidatos, cliente);
-        if (cota <= mejorRetorno + 1e-12) return;
+        if (cota <= mejorRetorno + EPSILON_RETORNO) return;
 
         Activo actual = candidatos.get(idx);
         elegidos.add(actual);
@@ -109,20 +121,19 @@ public class BacktrackingBnB {
 
     // Cálculo de cota optimista (segura)
     private static double cotaSuperiorRetorno(List<Activo> elegidos,
-                                            int idx,
-                                            List<Activo> candidatos,
-                                            Cliente cliente) {
+                                              int idx,
+                                              List<Activo> candidatos,
+                                              Cliente cliente) {
         double monto = cliente.montoTotal();
 
         double sumaMin = 0.0;
         double retMin = 0.0;
-        for (int i = 0; i < elegidos.size(); i++) {
-            Activo a = elegidos.get(i);
+        for (Activo a : elegidos) {
             double wmin = a.precioMinimo() / monto;
             sumaMin += wmin;
             retMin += wmin * a.retornoEsperado();
         }
-        if (sumaMin > 1.0 + 1e-12) return 0.0;
+        if (sumaMin > UMBRAL_MINIMOS) return 0.0;
 
         double maxRetRestante = 0.0;
         for (int i = idx; i < candidatos.size(); i++) {
@@ -145,10 +156,9 @@ public class BacktrackingBnB {
         if (sinSectores && sinTipos) return new ArrayList<>(universo);
 
         List<Activo> resultado = new ArrayList<>();
-        for (int i = 0; i < universo.size(); i++) {
-            Activo a = universo.get(i);
+        for (Activo a : universo) {
             boolean okSector = sinSectores || matchesAny(a.sector(), prefSectores);
-            boolean okTipo   = sinTipos || matchesAny(a.tipo(),   prefTipos);
+            boolean okTipo   = sinTipos || matchesAny(a.tipo(), prefTipos);
             if (okSector && okTipo) resultado.add(a);
         }
         if (resultado.isEmpty()) resultado.addAll(universo);
@@ -158,8 +168,7 @@ public class BacktrackingBnB {
     private static boolean matchesAny(String value, String[] opciones) {
         if (opciones == null || opciones.length == 0) return true;
         if (value == null) return false;
-        for (int i = 0; i < opciones.length; i++) {
-            String op = opciones[i];
+        for (String op : opciones) {
             if (op != null && value.equalsIgnoreCase(op)) return true;
         }
         return false;
@@ -175,7 +184,7 @@ public class BacktrackingBnB {
             w[i] = wi;
             sumaMinimos += wi;
         }
-        if (sumaMinimos > 1.0 + 1e-12) return null;
+        if (sumaMinimos > UMBRAL_MINIMOS) return null;
 
         double slack = Math.max(0.0, 1.0 - sumaMinimos);
 
@@ -186,7 +195,7 @@ public class BacktrackingBnB {
             base[i] = r;
             sumaPosRet += r;
         }
-        if (sumaPosRet < 1e-12) {
+        if (sumaPosRet < RETORNO_MIN_POSITIVO) {
             for (int i = 0; i < n; i++) base[i] = 1.0;
             sumaPosRet = n;
         }
@@ -196,7 +205,7 @@ public class BacktrackingBnB {
 
         double s = 0.0;
         for (double x : w) s += x;
-        if (Math.abs(s - 1.0) > 1e-9) {
+        if (Math.abs(s - 1.0) > EPSILON_SUM_PESOS) {
             for (int i = 0; i < n; i++) w[i] /= s;
         }
         return w;
@@ -209,3 +218,4 @@ public class BacktrackingBnB {
                 + "). " + String.format(Locale.US, "(r=%.3f, sigma=%.3f, corrProm=%.3f)", r, s, c);
     }
 }
+

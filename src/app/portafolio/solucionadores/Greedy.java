@@ -7,25 +7,35 @@ import app.portafolio.util.MatrizCorrelacion;
 import app.portafolio.util.RiesgoUtils;
 import app.portafolio.util.Validador;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
+import java.util.*;
 
 /**
- * Greedy (codicioso) simple, modo estudiante
- * - Filtra por preferencias (blandas).
- * - Ordena por retorno/riesgo.
- * - Agrega activos maximizando score = retorno - alpha*corrProm (penalización suave).
- * - Asigna pesos: mínimos + reparto del resto por retorno esperado.
- * - Valida: perfil (con retMinUsado), mínimos, 3..6, y cuotas por sector/tipo (si se pasan).
+ * Greedy: ordena activos por un score simple como puede ser un retorno ajustado por riesgo
+ * y así asigna pesos hasta completar el monto, respetando restricciones mínimas.
  */
 public class Greedy {
 
+    // =======================  CONSTANTES (para legibilidad)  =======================
+
+    /** Mínimo y máximo de activos por portafolio (cardinalidad). */
     private static final int K_MIN = 3;
     private static final int K_MAX = 6;
-    private static final double ALPHA_CORR = 0.02; // penalización suave por correlación
+
+    /** Penalización por correlación (afecta el score r - α·corr). */
+    private static final double ALPHA_CORR = 0.02;
+
+    /** Tolerancias numéricas para comparaciones de double. */
+    private static final double EPSILON_RIESGO = 1e-9;
+    private static final double EPSILON_RETORNO = 1e-12;
+    private static final double EPSILON_SUM_PESOS = 1e-9;
+
+    /** Umbral de minimos no superable (para evitar sumas > 1.0). */
+    private static final double UMBRAL_MINIMOS = 1.0 + 1e-12;
+
+    /** Valor mínimo considerado “positivo” para retornos. */
+    private static final double RETORNO_MIN_POSITIVO = 1e-12;
+
+    // ===============================================================================
 
     public static ResultadoPortafolio construir(List<Activo> universo,
                                                 MatrizCorrelacion rho,
@@ -39,8 +49,8 @@ public class Greedy {
         // 2) Orden
         candidatos.sort(new Comparator<Activo>() {
             @Override public int compare(Activo a1, Activo a2) {
-                double s1 = a1.retornoEsperado() / Math.max(1e-9, a1.riesgo());
-                double s2 = a2.retornoEsperado() / Math.max(1e-9, a2.riesgo());
+                double s1 = a1.retornoEsperado() / Math.max(EPSILON_RIESGO, a1.riesgo());
+                double s2 = a2.retornoEsperado() / Math.max(EPSILON_RIESGO, a2.riesgo());
                 return Double.compare(s2, s1);
             }
         });
@@ -62,8 +72,7 @@ public class Greedy {
             double corrCandidato = 1.0;
             double scoreCandidato = -1.0;
 
-            for (int i = 0; i < candidatos.size(); i++) {
-                Activo a = candidatos.get(i);
+            for (Activo a : candidatos) {
                 if (elegidos.contains(a)) continue;
 
                 List<Activo> tentativa = new ArrayList<>(elegidos);
@@ -77,14 +86,14 @@ public class Greedy {
                 double c = RiesgoUtils.correlacionPromedio(tentativa, rho);
                 double score = r - ALPHA_CORR * c;
 
-                boolean cumplePerfil = (s <= cliente.perfil().riesgoMax() + 1e-9)
-                                     && (r + 1e-12 >= retMinUsado);
+                boolean cumplePerfil = (s <= cliente.perfil().riesgoMax() + EPSILON_RIESGO)
+                                     && (r + EPSILON_RETORNO >= retMinUsado);
                 boolean cumpleCard = (tentativa.size() <= K_MAX);
                 boolean cumpleCuotas = Validador.cumplenCuotasMinimas(tentativa, w, cuotaSector, cuotaTipo);
 
                 if (cumplePerfil && cumpleCard && cumpleCuotas) {
                     boolean mejoraScore = (score > scoreCandidato);
-                    boolean empateScoreMenosRiesgo = (Math.abs(score - scoreCandidato) < 1e-9 && s < riesgoCandidato);
+                    boolean empateScoreMenosRiesgo = (Math.abs(score - scoreCandidato) < EPSILON_RIESGO && s < riesgoCandidato);
                     if (mejoraScore || empateScoreMenosRiesgo) {
                         mejorCandidato = a;
                         pesosCandidato = w;
@@ -117,8 +126,8 @@ public class Greedy {
                 double r = RiesgoUtils.retorno(elegidos, w);
                 double s = RiesgoUtils.riesgo(elegidos, w, rho);
                 double c = RiesgoUtils.correlacionPromedio(elegidos, rho);
-                boolean okPerfil = (s <= cliente.perfil().riesgoMax() + 1e-9)
-                                && (r + 1e-12 >= retMinUsado);
+                boolean okPerfil = (s <= cliente.perfil().riesgoMax() + EPSILON_RIESGO)
+                                && (r + EPSILON_RETORNO >= retMinUsado);
                 boolean okCuotas = Validador.cumplenCuotasMinimas(elegidos, w, cuotaSector, cuotaTipo);
                 if (okPerfil && okCuotas) {
                     mejoresPesos = w;
@@ -148,10 +157,9 @@ public class Greedy {
         if (sinSectores && sinTipos) return new ArrayList<>(universo);
 
         List<Activo> resultado = new ArrayList<>();
-        for (int i = 0; i < universo.size(); i++) {
-            Activo a = universo.get(i);
+        for (Activo a : universo) {
             boolean okSector = sinSectores || matchesAny(a.sector(), prefSectores);
-            boolean okTipo   = sinTipos || matchesAny(a.tipo(),   prefTipos);
+            boolean okTipo   = sinTipos || matchesAny(a.tipo(), prefTipos);
             if (okSector && okTipo) resultado.add(a);
         }
         if (resultado.isEmpty()) resultado.addAll(universo);
@@ -161,8 +169,7 @@ public class Greedy {
     private static boolean matchesAny(String value, String[] opciones) {
         if (opciones == null || opciones.length == 0) return true;
         if (value == null) return false;
-        for (int i = 0; i < opciones.length; i++) {
-            String op = opciones[i];
+        for (String op : opciones) {
             if (op != null && value.equalsIgnoreCase(op)) return true;
         }
         return false;
@@ -178,7 +185,7 @@ public class Greedy {
             w[i] = wi;
             sumaMinimos += wi;
         }
-        if (sumaMinimos > 1.0 + 1e-12) return null;
+        if (sumaMinimos > UMBRAL_MINIMOS) return null;
 
         double slack = Math.max(0.0, 1.0 - sumaMinimos);
 
@@ -189,7 +196,7 @@ public class Greedy {
             base[i] = r;
             sumaPosRet += r;
         }
-        if (sumaPosRet < 1e-12) {
+        if (sumaPosRet < RETORNO_MIN_POSITIVO) {
             for (int i = 0; i < n; i++) base[i] = 1.0;
             sumaPosRet = n;
         }
@@ -199,7 +206,7 @@ public class Greedy {
 
         double s = 0.0;
         for (double x : w) s += x;
-        if (Math.abs(s - 1.0) > 1e-9) {
+        if (Math.abs(s - 1.0) > EPSILON_SUM_PESOS) {
             for (int i = 0; i < n; i++) w[i] /= s;
         }
         return w;

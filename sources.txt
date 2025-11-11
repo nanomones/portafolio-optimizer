@@ -1,0 +1,12 @@
+C:\Users\fran\Documents\GitHub\portafolio-optimizer\src\app\portafolio\datos\LectorCsv.java
+C:\Users\fran\Documents\GitHub\portafolio-optimizer\src\app\portafolio\dominio\Activo.java
+C:\Users\fran\Documents\GitHub\portafolio-optimizer\src\app\portafolio\dominio\Cliente.java
+C:\Users\fran\Documents\GitHub\portafolio-optimizer\src\app\portafolio\dominio\PerfilCliente.java
+C:\Users\fran\Documents\GitHub\portafolio-optimizer\src\app\portafolio\dominio\ResultadoPortafolio.java
+C:\Users\fran\Documents\GitHub\portafolio-optimizer\src\app\portafolio\presentacion\Main.java
+C:\Users\fran\Documents\GitHub\portafolio-optimizer\src\app\portafolio\solucionadores\Alternativos.java
+C:\Users\fran\Documents\GitHub\portafolio-optimizer\src\app\portafolio\solucionadores\BacktrackingBnB.java
+C:\Users\fran\Documents\GitHub\portafolio-optimizer\src\app\portafolio\solucionadores\Greedy.java
+C:\Users\fran\Documents\GitHub\portafolio-optimizer\src\app\portafolio\util\MatrizCorrelacion.java
+C:\Users\fran\Documents\GitHub\portafolio-optimizer\src\app\portafolio\util\RiesgoUtils.java
+C:\Users\fran\Documents\GitHub\portafolio-optimizer\src\app\portafolio\util\Validador.java
